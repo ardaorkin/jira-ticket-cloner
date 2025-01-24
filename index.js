@@ -12,14 +12,19 @@ for (const envVar of requiredEnvVars) {
 
 // Validate command line arguments
 if (process.argv.length < 4 || process.argv.length > 6) {
-console.error("Usage: npm start <sourceTicketId> <targetProjectKey> [epicKey] [componentName]");
-console.error("Example: npm start ABC-123 XYZ");
-console.error("Example with epic: npm start ABC-123 XYZ XYZ-456");
-console.error("Example with epic and component: npm start ABC-123 XYZ XYZ-456 'Frontend'");
-process.exit(1);
+  console.error(
+    "Usage: npm start <sourceTicketId> <targetProjectKey> [epicKey] [componentName]"
+  );
+  console.error("Example: npm start ABC-123 XYZ");
+  console.error("Example with epic: npm start ABC-123 XYZ XYZ-456");
+  console.error(
+    "Example with epic and component: npm start ABC-123 XYZ XYZ-456 'Frontend'"
+  );
+  process.exit(1);
 }
 
-const [sourceTicketId, targetProjectKey, epicKey, componentName] = process.argv.slice(2);
+const [sourceTicketId, targetProjectKey, epicKey, componentName] =
+  process.argv.slice(2);
 const baseUrl = `https://${process.env.JIRA_DOMAIN}`;
 const auth = Buffer.from(
   `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_KEY}`
@@ -42,116 +47,161 @@ async function getSourceTicket(ticketId) {
   }
 }
 
-async function createClonedTicket(sourceTicket, targetProjectKey, epicKey, componentName) {
-const payload = {
+async function createClonedTicket(
+  sourceTicket,
+  targetProjectKey,
+  epicKey,
+  componentName
+) {
+  const payload = {
     fields: {
-    project: { key: targetProjectKey },
-    summary: sourceTicket.fields.summary,
-    description: sourceTicket.fields.description,
-    issuetype: {
+      project: { key: targetProjectKey },
+      summary: sourceTicket.fields.summary,
+      description: sourceTicket.fields.description,
+      issuetype: {
         id: sourceTicket.fields.issuetype.id,
+      },
+      priority: sourceTicket.fields.priority,
+      labels: sourceTicket.fields.labels,
     },
-    priority: sourceTicket.fields.priority,
-    labels: sourceTicket.fields.labels,
-    },
-};
+  };
 
-if (epicKey) {
+  if (epicKey) {
     payload.fields.customfield_10014 = epicKey;
-}
+  }
 
-if (componentName) {
+  if (componentName) {
     payload.fields.components = [{ name: componentName }];
-}
+  }
 
   try {
     const response = await api.post("/rest/api/2/issue", payload);
     return response.data;
-} catch (error) {
-if (error.response && error.response.data) {
-    console.error('Error Response Data:');
-    console.error('Status:', error.response.status);
-    console.error('Error Messages:', error.response.data.errorMessages);
-    console.error('Validation Errors:', JSON.stringify(error.response.data.errors, null, 2));
-} else {
-    console.error('Error:', error);
-}
-throw new Error(`Failed to create cloned ticket: ${error.message}`);
-}
+  } catch (error) {
+    if (error.response && error.response.data) {
+      console.error("Error Response Data:");
+      console.error("Status:", error.response.status);
+      console.error("Error Messages:", error.response.data.errorMessages);
+      console.error(
+        "Validation Errors:",
+        JSON.stringify(error.response.data.errors, null, 2)
+      );
+    } else {
+      console.error("Error:", error);
+    }
+    throw new Error(`Failed to create cloned ticket: ${error.message}`);
+  }
 }
 
 async function validateEpic(epicKey, projectKey) {
-try {
+  try {
     const response = await api.get(`/rest/api/2/issue/${epicKey}`);
     const epic = response.data;
-    
+
     // Verify it's an epic
-    if (epic.fields.issuetype.name.toLowerCase() !== 'epic') {
-    throw new Error(`${epicKey} is not an epic`);
+    if (epic.fields.issuetype.name.toLowerCase() !== "epic") {
+      throw new Error(`${epicKey} is not an epic`);
     }
-    
+
     // Verify it belongs to the target project
     if (epic.fields.project.key !== projectKey) {
-    throw new Error(`Epic ${epicKey} does not belong to project ${projectKey}`);
+      throw new Error(
+        `Epic ${epicKey} does not belong to project ${projectKey}`
+      );
     }
-    
+
     return true;
-} catch (error) {
+  } catch (error) {
     if (error.response && error.response.status === 404) {
-    throw new Error(`Epic ${epicKey} not found`);
+      throw new Error(`Epic ${epicKey} not found`);
     }
     throw new Error(`Failed to validate epic: ${error.message}`);
-}
+  }
 }
 
 async function validateComponent(componentName, projectKey) {
-try {
-    const response = await api.get(`/rest/api/2/project/${projectKey}/components`);
-    const components = response.data;
-    
-    const componentExists = components.some(
-    component => component.name === componentName
+  try {
+    const response = await api.get(
+      `/rest/api/2/project/${projectKey}/components`
     );
-    
+    const components = response.data;
+
+    const componentExists = components.some(
+      (component) => component.name === componentName
+    );
+
     if (!componentExists) {
-    throw new Error(`Component '${componentName}' not found in project ${projectKey}`);
+      throw new Error(
+        `Component '${componentName}' not found in project ${projectKey}`
+      );
     }
-    
+
     return true;
-} catch (error) {
+  } catch (error) {
     if (error.response && error.response.status === 404) {
-    throw new Error(`Project ${projectKey} not found`);
+      throw new Error(`Project ${projectKey} not found`);
     }
-    throw error.response ? error : new Error(`Failed to validate component: ${error.message}`);
+    throw error.response
+      ? error
+      : new Error(`Failed to validate component: ${error.message}`);
+  }
 }
+
+async function linkIssues(sourceTicketId, targetTicketId) {
+  const payload = {
+    type: {
+      name: "Relates",
+    },
+    inwardIssue: {
+      key: sourceTicketId,
+    },
+    outwardIssue: {
+      key: targetTicketId,
+    },
+  };
+
+  try {
+    await api.post("/rest/api/2/issueLink", payload);
+    console.log(`Linked ${sourceTicketId} to ${targetTicketId}`);
+  } catch (error) {
+    throw new Error(`Failed to link issues: ${error.message}`);
+  }
 }
 
 async function main() {
   console.log(`\nStarting ticket clone process...`);
-console.log(`Source Ticket: ${sourceTicketId}`);
-console.log(`Target Project: ${targetProjectKey}`);
-if (epicKey) console.log(`Target Epic: ${epicKey}`);
-if (componentName) console.log(`Target Component: ${componentName}`);
-console.log();
+  console.log(`Source Ticket: ${sourceTicketId}`);
+  console.log(`Target Project: ${targetProjectKey}`);
+  if (epicKey) console.log(`Target Epic: ${epicKey}`);
+  if (componentName) console.log(`Target Component: ${componentName}`);
+  console.log();
 
   try {
     console.log("Fetching source ticket details...");
     const sourceTicket = await getSourceTicket(sourceTicketId);
 
     if (epicKey) {
-    console.log("Validating epic...");
-    await validateEpic(epicKey, targetProjectKey);
+      console.log("Validating epic...");
+      await validateEpic(epicKey, targetProjectKey);
     }
 
     if (componentName) {
-    console.log("Validating component...");
-    await validateComponent(componentName, targetProjectKey);
+      console.log("Validating component...");
+      await validateComponent(componentName, targetProjectKey);
     }
 
     console.log("Creating cloned ticket...");
-    const newTicket = await createClonedTicket(sourceTicket, targetProjectKey, epicKey, componentName);
+    const newTicket = await createClonedTicket(
+      sourceTicket,
+      targetProjectKey,
+      epicKey,
+      componentName
+    );
 
-    console.log("\nSuccess! Ticket cloned successfully:");
+    console.log("Linking source ticket to cloned ticket...");
+    await linkIssues(sourceTicketId, newTicket.key);
+
+    console.log("\nSuccess! Ticket cloned and linked successfully:");
     console.log(`New Ticket Key: ${newTicket.key}`);
     console.log(`Ticket URL: ${baseUrl}/browse/${newTicket.key}`);
   } catch (error) {
